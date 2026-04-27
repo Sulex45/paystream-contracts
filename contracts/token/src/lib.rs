@@ -6,7 +6,7 @@ mod storage;
 mod types;
 
 use soroban_sdk::{contract, contractimpl, Address, Env};
-use storage::{
+use crate::storage::{
     allowance, balance_of, get_admin, set_admin, set_allowance,
     set_balance, set_total_supply, total_supply,
 };

@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use soroban_sdk::{Env, Address, Vec};
-use crate::types::{DataKey, Stream, StreamStatus, ERR_OVERFLOW, ERR_BAD_NONCE};
+use crate::types::{DataKey, Proposal, ProposalStatus, Stream, StreamStatus, ERR_OVERFLOW, ERR_BAD_NONCE};
 
-/// Default minimum deposit (10_000 stroops = 0.001 XLM equivalent).
 pub const DEFAULT_MIN_DEPOSIT: i128 = 10_000;
 
-/// Persistent storage TTL thresholds (in ledgers).
-/// Stellar produces ~1 ledger/5 s → 1 year ≈ 6_307_200 ledgers.
-/// We keep stream data alive for at least 1 year and extend to 2 years on
-/// every active-stream operation so long-running streams never expire.
-const TTL_THRESHOLD: u32 = 6_307_200;   // ~1 year
-const TTL_EXTEND_TO: u32 = 12_614_400;  // ~2 years
+const TTL_THRESHOLD: u32 = 6_307_200;
+const TTL_EXTEND_TO: u32 = 12_614_400;
 
 pub fn save_stream(env: &Env, stream: &Stream) {
     let key = DataKey::Stream(stream.id);
@@ -30,8 +25,6 @@ pub fn load_stream(env: &Env, id: u64) -> Option<Stream> {
 
 pub fn next_id(env: &Env) -> u64 {
     let count: u64 = env.storage().instance().get(&DataKey::StreamCount).unwrap_or(0);
-    // Saturating add: stream IDs will never realistically reach u64::MAX, but
-    // we use checked arithmetic throughout as a policy.
     let next = count.checked_add(1).expect("stream count overflow");
     env.storage().instance().set(&DataKey::StreamCount, &next);
     next
@@ -68,41 +61,34 @@ pub fn set_min_deposit(env: &Env, amount: i128) {
 
 /// Tokens earned by employee up to `now` that have not yet been withdrawn.
 ///
-/// All arithmetic uses checked or saturating operations to prevent overflow
-/// with large `rate_per_second` or `elapsed` values (see issue #2).
+/// Returns 0 before `cliff_time` (if set). All arithmetic uses checked or
+/// saturating operations to prevent overflow.
 pub fn claimable_amount(stream: &Stream, now: u64) -> i128 {
     match stream.status {
         StreamStatus::Cancelled | StreamStatus::Exhausted => return 0,
         _ => {}
     }
-    // Cap at stop_time in one expression to avoid a branch in the common case.
+    // Cliff: nothing claimable before cliff_time (#123).
+    if stream.cliff_time > 0 && now < stream.cliff_time {
+        return 0;
+    }
     let effective_end = if stream.stop_time > 0 && now > stream.stop_time {
         stream.stop_time
     } else {
         now
     };
-    // saturating_sub: elapsed is always >= 0 after this
     let elapsed = effective_end.saturating_sub(stream.last_withdraw_time) as i128;
-
-    // checked_mul: panic with a descriptive message on overflow rather than
-    // silently wrapping and producing an incorrect (possibly negative) payout.
     let earned = elapsed
         .checked_mul(stream.rate_per_second)
         .expect(ERR_OVERFLOW);
-
-    // remaining can never be negative for a well-formed stream, but clamp to 0
-    // defensively.
     let remaining = stream
         .deposit
         .checked_sub(stream.withdrawn)
         .unwrap_or(0)
         .max(0);
-
     earned.min(remaining).max(0)
 }
 
-/// Append `stream_id` to the employer's stream index.
-/// Called once per `create_stream`; O(1) amortised — no full scan.
 pub fn index_employer_stream(env: &Env, employer: &Address, stream_id: u64) {
     let key = DataKey::EmployerStreams(employer.clone());
     let mut ids: Vec<u64> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
@@ -111,13 +97,11 @@ pub fn index_employer_stream(env: &Env, employer: &Address, stream_id: u64) {
     env.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
 }
 
-/// Return all stream IDs owned by `employer`.
 pub fn get_employer_streams(env: &Env, employer: &Address) -> Vec<u64> {
     let key = DataKey::EmployerStreams(employer.clone());
     env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env))
 }
 
-/// Append `stream_id` to the employee's stream index.
 pub fn index_employee_stream(env: &Env, employee: &Address, stream_id: u64) {
     let key = DataKey::EmployeeStreams(employee.clone());
     let mut ids: Vec<u64> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
@@ -126,36 +110,21 @@ pub fn index_employee_stream(env: &Env, employee: &Address, stream_id: u64) {
     env.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
 }
 
-/// Return all stream IDs paying `employee`.
 pub fn get_employee_streams(env: &Env, employee: &Address) -> Vec<u64> {
     let key = DataKey::EmployeeStreams(employee.clone());
     env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env))
 }
 
-// ---------------------------------------------------------------------------
-// Admin nonce helpers (issue #70 — replay attack protection)
-// ---------------------------------------------------------------------------
-
-/// Return the current admin nonce (0 if never set).
 pub fn get_admin_nonce(env: &Env) -> u64 {
     env.storage().instance().get(&DataKey::AdminNonce).unwrap_or(0u64)
 }
 
-/// Verify `nonce` equals the stored nonce, then increment it atomically.
-///
-/// # Panics
-/// - E009 if `nonce` does not match the expected value.
 pub fn consume_admin_nonce(env: &Env, nonce: u64) {
     let expected = get_admin_nonce(env);
     assert!(nonce == expected, "{}", ERR_BAD_NONCE);
     env.storage().instance().set(&DataKey::AdminNonce, &(expected + 1));
 }
 
-// ---------------------------------------------------------------------------
-// Protocol fee helpers (issue #125)
-// ---------------------------------------------------------------------------
-
-/// Return the current protocol fee in basis points (0 = disabled).
 pub fn get_fee_bps(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0u32)
 }
@@ -172,10 +141,7 @@ pub fn set_fee_recipient(env: &Env, recipient: &Address) {
     env.storage().instance().set(&DataKey::FeeRecipient, recipient);
 }
 
-// ---------------------------------------------------------------------------
-// Employer transfer helpers (issue #69)
-// ---------------------------------------------------------------------------
-
+// Employer transfer helpers (#69)
 pub fn set_pending_employer(env: &Env, stream_id: u64, pending: &Address) {
     env.storage().instance().set(&DataKey::PendingEmployer(stream_id), pending);
 }
@@ -196,3 +162,55 @@ pub fn set_max_streams_per_employer(env: &Env, limit: u32) {
     env.storage().instance().set(&DataKey::MaxStreamsPerEmployer, &limit);
 }
 
+// ---------------------------------------------------------------------------
+// Governance helpers (#124)
+// ---------------------------------------------------------------------------
+
+pub fn next_proposal_id(env: &Env) -> u64 {
+    let count: u64 = env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0);
+    let next = count.checked_add(1).expect("proposal count overflow");
+    env.storage().instance().set(&DataKey::ProposalCount, &next);
+    next
+}
+
+pub fn save_proposal(env: &Env, proposal: &Proposal) {
+    env.storage().persistent().set(&DataKey::Proposal(proposal.id), proposal);
+}
+
+pub fn load_proposal(env: &Env, id: u64) -> Option<Proposal> {
+    env.storage().persistent().get(&DataKey::Proposal(id))
+}
+
+pub fn has_voted(env: &Env, proposal_id: u64, voter: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Voted(proposal_id, voter.clone()))
+        .unwrap_or(false)
+}
+
+pub fn mark_voted(env: &Env, proposal_id: u64, voter: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Voted(proposal_id, voter.clone()), &true);
+}
+
+pub fn apply_proposal(env: &Env, proposal: &Proposal) {
+    use crate::types::GovParam;
+    match proposal.param {
+        GovParam::MinDeposit => set_min_deposit(env, proposal.new_value as i128),
+        GovParam::MaxDuration => {
+            env.storage().instance().set(&DataKey::MaxStreamsPerEmployer, &(proposal.new_value as u32));
+        }
+        GovParam::FeeBps => set_fee_bps(env, proposal.new_value as u32),
+    }
+}
+
+pub fn tally_proposal(env: &Env, mut proposal: Proposal) -> Proposal {
+    if proposal.votes_for > proposal.votes_against {
+        proposal.status = ProposalStatus::Passed;
+    } else {
+        proposal.status = ProposalStatus::Rejected;
+    }
+    save_proposal(env, &proposal);
+    proposal
+}
