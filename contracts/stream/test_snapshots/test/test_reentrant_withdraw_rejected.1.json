@@ -85,6 +85,9 @@
                 },
                 {
                   "u64": 0
+                },
+                {
+                  "u64": 0
                 }
               ]
             }
@@ -267,6 +270,14 @@
                   "map": [
                     {
                       "key": {
+                        "symbol": "cliff_time"
+                      },
+                      "val": {
+                        "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "cooldown_period"
                       },
                       "val": {
@@ -322,6 +333,14 @@
                       },
                       "val": {
                         "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "paused_at"
+                      },
+                      "val": {
+                        "u64": 0
                       }
                     },
                     {
