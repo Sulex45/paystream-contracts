@@ -999,6 +999,43 @@ fn test_create_stream_exceeds_max_duration_effective_rejected() {
     client.create_stream(&employer, &employee, &token_id, &((max_duration + 1) as i128), &1, &0, &0, &0);
 }
 
+/// Issue #5: stop_time in the past must be rejected at stream creation.
+#[test]
+#[should_panic(expected = "E016")]
+fn test_create_stream_stop_time_in_past_rejected() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+
+    // Advance ledger so "now" is non-zero, then pass a stop_time in the past.
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    let past = 500u64; // clearly before now
+    client.create_stream(&employer, &employee, &token_id, &3600, &1, &past, &0, &0);
+}
+
+/// Issue #5: stop_time equal to current ledger time must also be rejected.
+#[test]
+#[should_panic(expected = "E016")]
+fn test_create_stream_stop_time_equal_now_rejected() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    let now = env.ledger().timestamp();
+    client.create_stream(&employer, &employee, &token_id, &3600, &1, &now, &0, &0);
+}
+
 #[test]
 fn test_cancel_after_partial_withdraw() {
     let (env, client) = setup();
@@ -1553,4 +1590,55 @@ fn test_resume_event_includes_employee() {
     
     // Verify at least one resume event was emitted
     assert!(!resume_events.is_empty(), "Resume event should be emitted");
+}
+
+// ---------------------------------------------------------------------------
+// Issue #119 – USDC as default payment token
+// ---------------------------------------------------------------------------
+
+/// Integration test: create and withdraw a stream using a USDC-like SEP-41
+/// token. The test uses the project's own token contract as a stand-in for
+/// Circle USDC because the real USDC contract is only available on-network.
+/// The token contract is fully SEP-41 compliant, so the behaviour is
+/// identical to production USDC.
+///
+/// Testnet USDC:  GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
+/// Mainnet USDC:  GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+#[test]
+fn test_create_and_withdraw_with_usdc_token() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+
+    // Deploy a SEP-41 token that represents USDC (6 decimals in production;
+    // here we use the project token which has 7 decimals — the contract logic
+    // is token-agnostic so the test is still valid).
+    let usdc_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &1_000_000); // 1 USDC (6 dec) minimum
+
+    // Create a stream paying 1 USDC per second for 3600 seconds (1 hour).
+    let deposit: i128 = 3_600_000_000; // 3600 USDC
+    let rate: i128 = 1_000_000;        // 1 USDC/s
+    let id = client.create_stream(&employer, &employee, &usdc_id, &deposit, &rate, &0, &0, &0);
+
+    assert_eq!(id, 1);
+    let s = client.get_stream(&id);
+    assert_eq!(s.token, usdc_id);
+    assert_eq!(s.deposit, deposit);
+    assert_eq!(s.rate_per_second, rate);
+
+    // Advance 60 seconds → 60 USDC claimable.
+    env.ledger().with_mut(|l| l.timestamp += 60);
+    assert_eq!(client.claimable(&id), 60_000_000);
+
+    // Employee withdraws.
+    let withdrawn = client.withdraw(&employee, &id);
+    assert_eq!(withdrawn, 60_000_000);
+
+    let s = client.get_stream(&id);
+    assert_eq!(s.withdrawn, 60_000_000);
+    assert_eq!(s.status, StreamStatus::Active);
 }
