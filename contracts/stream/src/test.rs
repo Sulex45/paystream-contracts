@@ -1385,3 +1385,73 @@ fn test_top_up_during_paused_state() {
     env.ledger().with_mut(|l| l.timestamp += 120);
     assert_eq!(client.claimable(&id), 1500);
 }
+
+// ---------------------------------------------------------------------------
+// Issue #57 – stop_time boundary tests
+// ---------------------------------------------------------------------------
+
+/// Withdraw at exactly stop_time drains the remaining deposit exactly.
+#[test]
+fn test_withdraw_at_exact_stop_time() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let now = env.ledger().timestamp();
+    let stop = now + 100;
+    // deposit = 1000, rate = 10 → exhausts in exactly 100s
+    let id = client.create_stream(&employer, &employee, &token_id, &1000, &10, &stop, &0, &0);
+
+    // Advance to exactly stop_time
+    env.ledger().with_mut(|l| l.timestamp = stop);
+    let withdrawn = client.withdraw(&employee, &id);
+    assert_eq!(withdrawn, 1000);
+    assert_eq!(client.get_stream(&id).status, StreamStatus::Exhausted);
+}
+
+/// Withdraw 1 second after stop_time still yields only what was earned up to stop_time.
+#[test]
+fn test_withdraw_one_second_after_stop_time() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let now = env.ledger().timestamp();
+    let stop = now + 50;
+    // deposit = 10_000, rate = 10 → stop_time caps at 50s * 10 = 500
+    let id = client.create_stream(&employer, &employee, &token_id, &10_000, &10, &stop, &0, &0);
+
+    // Advance 1 second past stop_time
+    env.ledger().with_mut(|l| l.timestamp = stop + 1);
+    let withdrawn = client.withdraw(&employee, &id);
+    assert_eq!(withdrawn, 500);
+}
+
+/// No extra funds are claimable after stop_time — claimable stays at 0 after full withdrawal.
+#[test]
+fn test_no_extra_claimable_after_stop_time() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let now = env.ledger().timestamp();
+    let stop = now + 100;
+    let id = client.create_stream(&employer, &employee, &token_id, &1000, &10, &stop, &0, &0);
+
+    // Withdraw at stop_time — drains deposit
+    env.ledger().with_mut(|l| l.timestamp = stop);
+    client.withdraw(&employee, &id);
+
+    // Advance well past stop_time — nothing more claimable
+    env.ledger().with_mut(|l| l.timestamp = stop + 10_000);
+    assert_eq!(client.claimable(&id), 0);
+}
