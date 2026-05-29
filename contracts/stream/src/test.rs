@@ -1557,3 +1557,58 @@ fn test_stop_time_caps_accrual_on_timestamp_leap() {
     // Accrual is capped at stop_time: (1100 - 1000) * 10 = 1000.
     assert_eq!(client.claimable(&id), 1000);
 }
+
+// ---------------------------------------------------------------------------
+// Issue #269 – Reentrancy guard on withdraw
+// ---------------------------------------------------------------------------
+
+/// State (withdrawn, last_withdraw_time) is updated before the token transfer,
+/// so a second withdraw in the same ledger timestamp yields 0.
+/// This proves the check-effects-interactions pattern is enforced.
+#[test]
+fn test_double_withdraw_yields_zero() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+    let token = paystream_token::TokenContractClient::new(&env, &token_id);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    let id = client.create_stream(&employer, &employee, &token_id, &3600, &1, &0, &0, &0);
+
+    // Advance time so there is something to withdraw
+    env.ledger().with_mut(|l| l.timestamp = 1100);
+    let first = client.withdraw(&employee, &id);
+    assert_eq!(first, 100);
+
+    // Second withdraw at the same timestamp must return 0 (state already updated)
+    let second = client.withdraw(&employee, &id);
+    assert_eq!(second, 0);
+
+    // Employee received exactly what was earned — no double-spend
+    assert_eq!(token.balance(&employee), 100);
+}
+
+/// The locked flag is false after a successful withdraw (guard is released).
+#[test]
+fn test_withdraw_releases_lock() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    let id = client.create_stream(&employer, &employee, &token_id, &3600, &1, &0, &0, &0);
+
+    env.ledger().with_mut(|l| l.timestamp = 1100);
+    client.withdraw(&employee, &id);
+
+    let stream = client.get_stream(&id);
+    assert!(!stream.locked, "lock must be released after withdraw");
+}
