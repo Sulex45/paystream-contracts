@@ -8,6 +8,8 @@ import { exportAllHistory } from "./csvExport";
 import { EmployerDashboard } from "./EmployerDashboard";
 import { EmployeeDashboard } from "./EmployeeDashboard";
 import { StreamStatusCard } from "./StreamStatusCard";
+import { WalletButton } from "./WalletButton";
+import { WalletModal } from "./WalletModal";
 
 const STROOP = 10_000_000n; // 1 XLM in stroops
 
@@ -98,6 +100,9 @@ export default function App() {
     usePayStream();
   const history = useTransactionHistory();
 
+  // Wallet modal state
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+
   // Create stream form state
   const [employee, setEmployee] = useState("");
   const [token, setToken] = useState(CONFIG.defaultToken);
@@ -116,6 +121,12 @@ export default function App() {
   // Stream templates (#117)
   const { templates, save: saveTemplate, remove: removeTemplate } = useStreamTemplates();
   const [templateName, setTemplateName] = useState("");
+
+  const handleWalletConnect = async (walletType: "freighter") => {
+    if (walletType === "freighter") {
+      await connect();
+    }
+  };
 
   const applyTemplate = (tpl: StreamTemplate) => {
     setEmployee("");
@@ -202,16 +213,32 @@ export default function App() {
         <h1>💸 PayStream Demo</h1>
         <div className="header-right">
           <p className="subtitle">Testnet — real-time salary streaming on Stellar</p>
-          <button
-            onClick={toggleDark}
-            className="toggle-btn"
-            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-            aria-pressed={dark}
-          >
-            {dark ? "☀️ Light" : "🌙 Dark"}
-          </button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <WalletButton
+              publicKey={publicKey}
+              loading={loading}
+              onClick={() => setWalletModalOpen(true)}
+            />
+            <button
+              onClick={toggleDark}
+              className="toggle-btn"
+              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={dark}
+            >
+              {dark ? "☀️ Light" : "🌙 Dark"}
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* ── Wallet Modal ── */}
+      <WalletModal
+        isOpen={walletModalOpen}
+        onClose={() => setWalletModalOpen(false)}
+        onConnect={handleWalletConnect}
+        loading={loading}
+        error={error}
+      />
 
       {/* ── View tabs ── */}
       <nav className="view-tabs" role="tablist" aria-label="Application views">
