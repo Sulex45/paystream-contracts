@@ -1557,3 +1557,81 @@ fn test_stop_time_caps_accrual_on_timestamp_leap() {
     // Accrual is capped at stop_time: (1100 - 1000) * 10 = 1000.
     assert_eq!(client.claimable(&id), 1000);
 }
+
+// ---------------------------------------------------------------------------
+// Issue #280 – Stream expiry auto-cancellation
+// ---------------------------------------------------------------------------
+
+/// get_stream returns Exhausted after stop_time when deposit is fully streamed.
+#[test]
+fn test_get_stream_exhausted_after_stop_time() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    // deposit = 100, rate = 1, stop_time = 1100 → fully streamed at stop_time
+    let id = client.create_stream(&employer, &employee, &token_id, &100, &1, &1100, &0, &0);
+
+    // Advance past stop_time
+    env.ledger().with_mut(|l| l.timestamp = 1200);
+    // Withdraw to crystallise earnings
+    client.withdraw(&employee, &id);
+    let stream = client.get_stream(&id);
+    assert_eq!(stream.status, StreamStatus::Exhausted);
+}
+
+/// Employer can reclaim unstreamed deposit after stop_time via reclaim_expired.
+#[test]
+fn test_reclaim_expired_refunds_employer() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+    let token = paystream_token::TokenContractClient::new(&env, &token_id);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    // deposit = 1000, rate = 1, stop_time = 1100 → only 100 streamed, 900 refundable
+    let id = client.create_stream(&employer, &employee, &token_id, &1000, &1, &1100, &0, &0);
+
+    let employer_before = token.balance(&employer);
+    let employee_before = token.balance(&employee);
+
+    // Advance past stop_time
+    env.ledger().with_mut(|l| l.timestamp = 1200);
+    client.reclaim_expired(&employer, &id);
+
+    let stream = client.get_stream(&id);
+    assert_eq!(stream.status, StreamStatus::Exhausted);
+    // Employee received 100 tokens (100s * 1 rate)
+    assert_eq!(token.balance(&employee), employee_before + 100);
+    // Employer reclaimed 900 tokens
+    assert_eq!(token.balance(&employer), employer_before + 900);
+}
+
+/// reclaim_expired panics if stop_time has not passed.
+#[test]
+#[should_panic(expected = "stream has not expired")]
+fn test_reclaim_expired_before_stop_time_panics() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    client.set_min_deposit(&admin, &0, &100);
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    let id = client.create_stream(&employer, &employee, &token_id, &1000, &1, &1100, &0, &0);
+
+    // Still before stop_time
+    env.ledger().with_mut(|l| l.timestamp = 1050);
+    client.reclaim_expired(&employer, &id);
+}
