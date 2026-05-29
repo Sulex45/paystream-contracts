@@ -11,7 +11,9 @@
     "@stellar/stellar-sdk": "12.3.0",
     "axios": "1.7.9",
     "nodemailer": "6.9.16",
-    "dotenv": "16.4.7"
+    "dotenv": "16.4.7",
+    "bullmq": "5.8.0",
+    "ioredis": "5.4.1"
   },
   "engines": {
     "node": ">=18"

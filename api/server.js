@@ -15,14 +15,58 @@ const tokenRoutes = require('./routes/tokens');
 const adminRoutes = require('./routes/admin');
 const governanceRoutes = require('./routes/governance');
 const userRoutes = require('./routes/users');
+const analyticsRoutes = require('./routes/analytics');
+
+const { createBullBoard } = require('@bull-board/api');
+const { BullMQAdapter } = require('@bull-board/api/bullMQAdapter');
+const { ExpressAdapter } = require('@bull-board/express');
+const { notificationQueue, indexerQueue } = require('./services/queueService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const startedAt = new Date();
 
+// BullBoard setup
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+
+createBullBoard({
+  queues: [
+    new BullMQAdapter(notificationQueue),
+    new BullMQAdapter(indexerQueue),
+  ],
+  serverAdapter: serverAdapter,
+});
+
 // Security middleware
 app.use(helmet());
-app.use(cors());
+
+// CORS configuration
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:3000', 'http://localhost:5173']; // Default dev origins
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+
+// Admin UI for queues
+app.use('/admin/queues', serverAdapter.getRouter());
 
 // Rate limiting
 const limiter = rateLimit({
@@ -174,6 +218,7 @@ app.use('/api/streams', authMiddleware, streamRoutes);
 app.use('/api/tokens', authMiddleware, tokenRoutes);
 app.use('/api/admin', authMiddleware, adminRoutes);
 app.use('/api/governance', authMiddleware, governanceRoutes);
+app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/users', authMiddleware, userRoutes);
 
 // 404 handler

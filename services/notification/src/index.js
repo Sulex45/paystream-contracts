@@ -5,6 +5,8 @@ require("dotenv").config();
 const { Horizon } = require("@stellar/stellar-sdk");
 const axios = require("axios");
 const nodemailer = require("nodemailer");
+const { Worker } = require("bullmq");
+const { notificationQueue, connection } = require("./queue");
 
 const {
   HORIZON_URL = "https://horizon-testnet.stellar.org",
@@ -44,6 +46,7 @@ async function sendWebhook(payload) {
     await axios.post(WEBHOOK_URL, payload, { timeout: 5000 });
   } catch (err) {
     console.error("Webhook delivery failed:", err.message);
+    throw err; // Throw to trigger BullMQ retry
   }
 }
 
@@ -54,8 +57,41 @@ async function sendEmail({ to, subject, text }) {
     await mailer.sendMail({ from: EMAIL_FROM, to, subject, text });
   } catch (err) {
     console.error("Email delivery failed:", err.message);
+    throw err; // Throw to trigger BullMQ retry
   }
 }
+
+/** Worker for processing notification jobs */
+const worker = new Worker(
+  "notifications",
+  async (job) => {
+    const { payload, notification } = job.data;
+    console.log(`[Job ${job.id}] Processing notification for stream #${notification.streamId}`);
+
+    // Try sending webhook
+    if (WEBHOOK_URL) {
+      await sendWebhook(payload);
+    }
+
+    // Try sending email
+    if (mailer && notification.notifyAddresses?.length > 0) {
+      await sendEmail({
+        to: notification.notifyAddresses.join(","),
+        subject: notification.subject,
+        text: notification.text,
+      });
+    }
+  },
+  { connection }
+);
+
+worker.on("completed", (job) => {
+  console.log(`[Job ${job.id}] Completed successfully`);
+});
+
+worker.on("failed", (job, err) => {
+  console.error(`[Job ${job.id}] Failed: ${err.message}`);
+});
 
 /** Derive notification recipients and message from a parsed event. */
 function buildNotification(event) {
@@ -134,12 +170,10 @@ async function poll() {
       const notification = buildNotification(event);
       const payload = { ...notification, timestamp: new Date().toISOString() };
 
-      await sendWebhook(payload);
-      await sendEmail({
-        to: notification.notifyAddresses?.join(","),
-        subject: notification.subject,
-        text: notification.text,
-      });
+      await notificationQueue.add(
+        `${event.type}-${event.streamId}-${record.paging_token}`,
+        { payload, notification }
+      );
     }
   } catch (err) {
     console.error("Poll error:", err.message);
