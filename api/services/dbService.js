@@ -125,6 +125,15 @@ async function exportAuditLogsCSV() {
   return csvLines.join('\n');
 }
 
+async function closePool() {
+  if (pool) {
+    await pool.end();
+  }
+}
+
+/**
+ * Delete all off-chain user data for a given Stellar address.
+ */
 async function deleteOffChainUserData(address) {
   const deletedPrefs = inMemoryPrefs.delete(address);
   const deletedNotifs = inMemoryNotifications.delete(address);
@@ -161,6 +170,7 @@ async function deleteOffChainUserData(address) {
 
 module.exports = {
   pool,
+  closePool,
   inMemoryPrefs,
   inMemoryNotifications,
   deleteOffChainUserData,
