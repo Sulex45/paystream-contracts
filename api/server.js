@@ -15,6 +15,7 @@ const tokenRoutes = require('./routes/tokens');
 const adminRoutes = require('./routes/admin');
 const governanceRoutes = require('./routes/governance');
 const userRoutes = require('./routes/users');
+const webhookRoutes = require('./routes/webhooks');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -129,6 +130,44 @@ const swaggerOptions = {
             },
           },
         },
+        ValidationError: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'string',
+              example: 'Validation failed',
+            },
+            details: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  msg: { type: 'string' },
+                  param: { type: 'string' },
+                  location: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        ValidationError: {
+          description: 'Input validation failed',
+          content: {
+            application/json: {
+              schema: { $ref: '#/components/schemas/ValidationError' },
+            },
+          },
+        },
+        UnauthorizedError: {
+          description: 'Authentication required or invalid credentials',
+          content: {
+            application/json: {
+              schema: { $ref: '#/components/schemas/Error' },
+            },
+          },
+        },
       },
     },
     security: [
@@ -141,7 +180,20 @@ const swaggerOptions = {
 };
 
 const specs = swaggerJsdoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(specs));
+
+// Export OpenAPI spec as JSON
+app.get('/docs/openapi.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(specs);
+});
+
+// Export OpenAPI spec as YAML
+const YAML = require('yaml');
+app.get('/docs/openapi.yaml', (req, res) => {
+  res.setHeader('Content-Type', 'text/yaml');
+  res.send(YAML.stringify(specs));
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -174,6 +226,7 @@ app.use('/api/streams', authMiddleware, streamRoutes);
 app.use('/api/tokens', authMiddleware, tokenRoutes);
 app.use('/api/admin', authMiddleware, adminRoutes);
 app.use('/api/governance', authMiddleware, governanceRoutes);
+app.use('/api/webhooks', webhookRoutes);
 app.use('/users', authMiddleware, userRoutes);
 
 // 404 handler

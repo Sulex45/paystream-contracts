@@ -16,6 +16,7 @@ if (databaseUrl) {
 // In-memory fallback stores for preferences and notifications
 const inMemoryPrefs = new Map();
 const inMemoryNotifications = new Map();
+const inMemoryWebhooks = new Map();
 
 /**
  * Delete all off-chain user data for a given Stellar address.
@@ -24,6 +25,7 @@ async function deleteOffChainUserData(address) {
   // 1. Delete from in-memory fallback stores
   const deletedPrefs = inMemoryPrefs.delete(address);
   const deletedNotifs = inMemoryNotifications.delete(address);
+  const deletedWebhooks = inMemoryWebhooks.delete(address);
   
   let dbDeleted = false;
 
@@ -39,6 +41,7 @@ async function deleteOffChainUserData(address) {
         await client.query('DELETE FROM user_preferences WHERE address = $1', [address]);
         await client.query('DELETE FROM user_notifications WHERE address = $1', [address]);
         await client.query('DELETE FROM notifications WHERE user_address = $1', [address]);
+        await client.query('DELETE FROM webhooks WHERE address = $1', [address]);
         
         await client.query('COMMIT');
         dbDeleted = true;
@@ -55,7 +58,7 @@ async function deleteOffChainUserData(address) {
 
   return {
     success: true,
-    deletedFromMemory: deletedPrefs || deletedNotifs,
+    deletedFromMemory: deletedPrefs || deletedNotifs || deletedWebhooks,
     deletedFromDb: dbDeleted,
   };
 }
@@ -64,5 +67,6 @@ module.exports = {
   pool,
   inMemoryPrefs,
   inMemoryNotifications,
+  inMemoryWebhooks,
   deleteOffChainUserData,
 };
