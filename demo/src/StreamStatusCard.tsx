@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import React from "react";
 import type { Stream } from "@paystream/sdk";
+import { useBalanceTicker } from "./useBalanceTicker";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -125,6 +126,9 @@ export function StreamStatusCard({
 }: StreamStatusCardProps) {
   const key = stream.id.toString();
 
+  // Use the balance ticker hook for live-updating claimable balance
+  const liveClaimable = useBalanceTicker(stream, claimable);
+
   // Derived values
   const locked =
     stream.deposit > stream.withdrawn ? stream.deposit - stream.withdrawn : 0n;
@@ -201,7 +205,7 @@ export function StreamStatusCard({
         />
         <MetricItem
           label="Claimable Now"
-          value={`${formatXlm(claimable)} XLM`}
+          value={`${formatXlm(liveClaimable)} XLM`}
           highlight
           live={stream.status === "Active"}
         />
