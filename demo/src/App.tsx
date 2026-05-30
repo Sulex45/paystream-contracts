@@ -3,6 +3,7 @@ import React, { useState, useEffect, useId } from "react";
 import { usePayStream } from "./usePayStream";
 import { useTransactionHistory } from "./useTransactionHistory";
 import { CONFIG } from "./config";
+import { useFiatPrices, AVAILABLE_FIAT_CURRENCIES, getTokenPricingMetadata } from "./useFiatPrice";
 import { useStreamTemplates, DEFAULT_TEMPLATES, StreamTemplate } from "./useStreamTemplates";
 import { exportAllHistory } from "./csvExport";
 import { EmployerDashboard } from "./EmployerDashboard";
@@ -124,6 +125,15 @@ export default function App() {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState(false);
 
+  const {
+    fiatCurrency,
+    setFiatCurrency,
+    getPriceForToken,
+    loading: priceLoading,
+    error: priceError,
+    lastUpdated,
+  } = useFiatPrices();
+
   // Load stream form state
   const [lookupId, setLookupId] = useState("");
 
@@ -244,6 +254,12 @@ export default function App() {
       stream?.employee ?? "",
       stream?.token ?? ""
     );
+  };
+
+  const getTokenLabel = (token: string) => {
+    const meta = getTokenPricingMetadata(token);
+    if (meta) return meta.symbol;
+    return token.length > 12 ? `${token.slice(0, 6)}…${token.slice(-4)}` : token;
   };
 
   // Re-validate on change after first submit attempt
@@ -393,6 +409,42 @@ export default function App() {
           )}
         </section>
 
+        {/* ── Fiat settings ── */}
+        <section className="card" aria-labelledby="fiat-settings-heading">
+          <h2 id="fiat-settings-heading">Fiat Currency</h2>
+          <div className="field" style={{ maxWidth: 320 }}>
+            <label htmlFor="fiat-currency" className="field-label">
+              Preferred currency
+            </label>
+            <select
+              id="fiat-currency"
+              className="input"
+              value={fiatCurrency}
+              onChange={(e) => setFiatCurrency(e.target.value as any)}
+            >
+              {AVAILABLE_FIAT_CURRENCIES.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="field-hint">
+              Saved in browser settings. Prices refresh every 60 seconds.
+            </p>
+            {priceError && (
+              <p role="alert" className="field-error">
+                Unable to update prices: {priceError}
+              </p>
+            )}
+            {!priceError && (
+              <p className="field-hint">
+                Last updated {lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "…"}.
+                {priceLoading ? " Updating…" : ""}
+              </p>
+            )}
+          </div>
+        </section>
+
         {/* ── Error banner ── */}
         {error && (
           <div role="alert" aria-live="assertive" className="error-banner">
@@ -487,6 +539,9 @@ export default function App() {
                     <StreamStatusCard
                       stream={s}
                       claimable={claimable}
+                      tokenSymbol={getTokenLabel(s.token)}
+                      fiatCurrency={fiatCurrency}
+                      tokenPrice={getPriceForToken(s.token) ?? null}
                       onWithdraw={
                         s.status === "Active" && publicKey === s.employee
                           ? () => withdraw(s.id)

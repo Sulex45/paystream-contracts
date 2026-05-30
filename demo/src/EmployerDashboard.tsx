@@ -5,6 +5,7 @@ import { StreamStatusCard } from "./StreamStatusCard";
 import { CancelConfirmModal } from "./CancelConfirmModal";
 import { StreamCardSkeleton } from "./StreamCardSkeleton";
 import type { Stream } from "@paystream/sdk";
+import type { FiatCurrency, TokenPricingMetadata } from "./useFiatPrice";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -45,9 +46,17 @@ function StatCard({ id, label, value, icon, accentVar }: StatCardProps) {
 interface EmployerDashboardProps {
   /** Optional public key from an already-connected wallet in the parent. */
   walletPublicKey?: string | null;
+  fiatCurrency?: FiatCurrency;
+  getTokenPrice?: (token: string) => number | undefined;
+  getTokenLabel?: (token: string) => string;
 }
 
-export function EmployerDashboard({ walletPublicKey }: EmployerDashboardProps) {
+export function EmployerDashboard({
+  walletPublicKey,
+  fiatCurrency,
+  getTokenPrice,
+  getTokenLabel,
+}: EmployerDashboardProps) {
   const {
     publicKey,
     streams,
