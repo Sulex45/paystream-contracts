@@ -6,6 +6,7 @@ Thank you for contributing to PayStream — a Soroban smart contract system for 
 
 ## Table of Contents
 
+- [Onboarding Guide](#onboarding-guide)
 - [Development Setup](#development-setup)
   - [macOS](#macos)
   - [Linux](#linux)
@@ -14,6 +15,7 @@ Thank you for contributing to PayStream — a Soroban smart contract system for 
 - [Project Structure](#project-structure)
 - [Coding Standards](#coding-standards)
 - [Commit Conventions](#commit-conventions)
+- [Secret Scanning](#secret-scanning)
 - [Pull Request Process](#pull-request-process)
 - [Testing Requirements](#testing-requirements)
 - [Code Review Expectations](#code-review-expectations)
@@ -21,6 +23,10 @@ Thank you for contributing to PayStream — a Soroban smart contract system for 
 - [License](#license)
 
 ---
+
+## Onboarding Guide
+
+If this is your first contribution, start with `docs/onboarding.md` for a quick path from fork setup to opening your first pull request.
 
 ## Development Setup
 
@@ -239,6 +245,38 @@ chore: bump soroban-sdk to 22.0.0
 - No period at the end of the subject line
 - Reference issues in the footer: `Closes #15` or `Fixes #3`
 - Breaking changes must include `BREAKING CHANGE:` in the footer
+
+---
+
+## Secret Scanning
+
+PayStream uses [gitleaks](https://github.com/gitleaks/gitleaks) to prevent accidental commits of secrets (Stellar secret keys, tokens, etc.). Scanning runs automatically in CI on every push and PR via `.github/workflows/secret-scan.yml`.
+
+### Install the pre-commit hook (recommended)
+
+The hook scans only your staged files before each commit, catching leaks before they ever leave your machine.
+
+```bash
+# One-time setup
+cp scripts/pre-commit-hook.sh .git/hooks/pre-commit
+
+# Install gitleaks (pick one)
+brew install gitleaks                          # macOS
+sudo apt-get install gitleaks                  # Debian/Ubuntu (if in apt)
+# or download a binary from https://github.com/gitleaks/gitleaks/releases
+```
+
+If `gitleaks` is not installed the hook exits cleanly — it will not block commits. CI will still catch any leaks.
+
+### Running a manual scan
+
+```bash
+gitleaks detect --config .gitleaks.toml --redact
+```
+
+### False positives
+
+Add an allowlist entry to `.gitleaks.toml`. See the comments in that file for examples. Do **not** use `--no-git` or disable the hook to silence a warning — investigate first.
 
 ---
 
