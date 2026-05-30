@@ -112,6 +112,9 @@ export default function App() {
     usePayStream();
   const history = useTransactionHistory();
 
+  // Wallet modal state
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+
   // Create stream form state
   const [employee, setEmployee] = useState("");
   const [token, setToken] = useState(CONFIG.defaultToken);
@@ -133,6 +136,12 @@ export default function App() {
   // Stream templates (#117)
   const { templates, save: saveTemplate, remove: removeTemplate } = useStreamTemplates();
   const [templateName, setTemplateName] = useState("");
+
+  const handleWalletConnect = async (walletType: "freighter") => {
+    if (walletType === "freighter") {
+      await connect();
+    }
+  };
 
   const applyTemplate = (tpl: StreamTemplate) => {
     setEmployee("");
@@ -249,16 +258,32 @@ export default function App() {
         <h1>💸 PayStream Demo</h1>
         <div className="header-right">
           <p className="subtitle">Testnet — real-time salary streaming on Stellar</p>
-          <button
-            onClick={toggleDark}
-            className="toggle-btn"
-            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-            aria-pressed={dark}
-          >
-            {dark ? "☀️ Light" : "🌙 Dark"}
-          </button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <WalletButton
+              publicKey={publicKey}
+              loading={loading}
+              onClick={() => setWalletModalOpen(true)}
+            />
+            <button
+              onClick={toggleDark}
+              className="toggle-btn"
+              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={dark}
+            >
+              {dark ? "☀️ Light" : "🌙 Dark"}
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* ── Wallet Modal ── */}
+      <WalletModal
+        isOpen={walletModalOpen}
+        onClose={() => setWalletModalOpen(false)}
+        onConnect={handleWalletConnect}
+        loading={loading}
+        error={error}
+      />
 
       {/* ── View tabs ── */}
       <nav className="view-tabs" role="tablist" aria-label="Application views">
@@ -420,64 +445,12 @@ export default function App() {
         {/* ── Create Stream ── */}
         <section className="card" aria-labelledby="create-heading">
           <h2 id="create-heading">Create Stream</h2>
-          <form onSubmit={handleCreate} noValidate aria-label="Create a new salary stream">
-            <Field
-              label="Employee address"
-              value={employee}
-              onChange={setEmployee}
-              placeholder="G..."
-              error={formErrors.employee}
-              required
-            />
-            <Field
-              label="Token contract ID"
-              value={token}
-              onChange={setToken}
-              placeholder="C..."
-              error={formErrors.token}
-              required
-            />
-            <Field
-              label="Deposit (XLM)"
-              value={deposit}
-              onChange={setDeposit}
-              type="number"
-              min="0"
-              step="any"
-              error={formErrors.deposit}
-              required
-            />
-            <Field
-              label="Rate (stroops/sec)"
-              value={rate}
-              onChange={setRate}
-              type="number"
-              min="0"
-              step="1"
-              error={formErrors.rate}
-              required
-            />
-            <Field
-              label="Stop time (unix timestamp, 0 = indefinite)"
-              value={stopTime}
-              onChange={setStopTime}
-              type="number"
-              min="0"
-              step="1"
-              error={formErrors.stopTime}
-            />
-            {duration && (
-              <p className="duration-hint" aria-live="polite">
-                ⏱ Estimated stream duration: <strong>{duration}</strong>
-              </p>
-            )}
-            <button type="submit" disabled={loading || !publicKey} className="btn" aria-busy={loading}>
-              {loading ? "Creating…" : "Create Stream"}
-            </button>
-            {!publicKey && (
-              <p className="field-hint">Connect your wallet to create a stream.</p>
-            )}
-          </form>
+          <StreamCreationForm
+            defaultToken={CONFIG.defaultToken}
+            onSubmit={createStream}
+            loading={loading}
+            walletConnected={!!publicKey}
+          />
         </section>
 
         {/* ── Load Stream ── */}
