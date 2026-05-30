@@ -1,41 +1,26 @@
-# PayStream Backend
+# PayStream Backend (rate limiting example)
 
-Off-chain backend services for PayStream.
+This small Express app demonstrates Redis-backed rate limiting per-IP (public endpoints) and per-wallet (write endpoints).
 
-## Modules
+Environment
 
-### Notification Preferences (`src/notifications.rs`)
+- `REDIS_URL` - Redis connection string (default: `redis://127.0.0.1:6379`)
 
-CRUD API for employer notification preferences.
+Rules implemented
 
-#### Endpoints (to be wired into your HTTP framework)
+- Public endpoints: 100 req/min per IP
+- Write endpoints: 30 req/min per wallet (header `X-Wallet-Address`)
+- Responses on rate limit: `429` with `Retry-After` header (seconds)
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/employers/:address/notifications` | Create a preference |
-| `GET` | `/employers/:address/notifications` | List preferences |
-| `GET` | `/employers/:address/notifications/:id` | Get a preference |
-| `PUT` | `/employers/:address/notifications/:id` | Update a preference |
-| `DELETE` | `/employers/:address/notifications/:id` | Delete a preference |
-| `GET` | `/notifications/unsubscribe/:token` | Unsubscribe via email link |
+Start
 
-#### Channels
-- `email` — destination is an email address; unsubscribe token included in email footer
-- `webhook` — destination is an HTTPS URL; payload is the event JSON
-
-#### Per-event toggles
-Each preference has a map of `StreamEvent → bool`. Supported events:
-`stream_created`, `withdrawn`, `paused`, `resumed`, `cancelled`, `topped_up`, `stream_transferred`
-
-#### Example request body
-```json
-{
-  "channel": "email",
-  "destination": "payroll@company.com",
-  "events": {
-    "stream_created": true,
-    "withdrawn": false,
-    "cancelled": true
-  }
-}
+```bash
+cd backend
+npm install
+npm start
 ```
+
+Notes
+
+- Uses `rate-limiter-flexible` with Redis to support multi-instance deployments.
+- Adjust limits/durations in `middleware/rateLimiter.js`.
