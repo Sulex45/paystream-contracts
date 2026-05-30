@@ -2,9 +2,11 @@
 
 Full documentation for every PayStream contract function: parameters, return values, errors, and CLI examples.
 
-> See [docs/performance.md](performance.md) for measured Soroban cost and resource usage.  
-> For event schema and example payloads, see [docs/events.md](events.md).  
-> For the security and trust model, see [docs/security-model.md](security-model.md).
+> See [docs/performance.md](performance.md) for measured Soroban cost and resource usage for contract operations.
+>
+> For event schema and example payloads, see [docs/events.md](events.md).
+>
+> For a full error code reference with causes and resolution steps, see [docs/error-codes.md](error-codes.md).
 
 ---
 
