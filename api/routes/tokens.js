@@ -285,4 +285,70 @@ router.post('/mint', [
   }
 });
 
+/**
+ * @swagger
+ * /api/tokens/{address}:
+ *   get:
+ *     summary: Get SEP-41 token metadata
+ *     description: Returns name, symbol, and decimals for any SEP-41 token. Cached for 1 hour.
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: address
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Token contract address (C...)
+ *     responses:
+ *       200:
+ *         description: Token metadata
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 address:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 symbol:
+ *                   type: string
+ *                 decimals:
+ *                   type: integer
+ *       404:
+ *         description: Token not found or invalid address
+ */
+router.get('/:address', [
+  param('address').isString().matches(/^C[A-Z0-9]{62}$/).withMessage('Invalid contract address'),
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(404).json({ error: 'Invalid token address' });
+    }
+
+    const { address } = req.params;
+
+    if (!stellarService.validateContractId(address)) {
+      return res.status(404).json({ error: 'Invalid token address' });
+    }
+
+    const metadata = await stellarService.getTokenMetadata(address);
+
+    res.json({
+      success: true,
+      address,
+      ...metadata,
+    });
+
+  } catch (error) {
+    if (error.message.includes('not found') || error.message.includes('does not exist')) {
+      return res.status(404).json({ error: 'Token not found' });
+    }
+    next(error);
+  }
+});
+
 module.exports = router;

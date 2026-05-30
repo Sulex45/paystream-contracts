@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const stellarService = require('../services/stellarService');
-const idempotencyMiddleware = require('../middleware/idempotency');
+const cache = require('../services/cacheService');
 const router = express.Router();
 
 /**
@@ -224,12 +224,23 @@ router.get('/:stream_id', [
 
     const { stream_id } = req.params;
 
+    const cached = await cache.getStream(stream_id);
+    if (cached) {
+      res.set('Cache-Control', 'public, max-age=10');
+      res.set('X-Cache', 'HIT');
+      return res.json({ success: true, stream: cached });
+    }
+
     const result = await stellarService.callContractMethod({
       contractId: stellarService.streamContractId,
       functionName: 'get_stream',
       args: [BigInt(stream_id)]
     });
 
+    await cache.setStream(stream_id, result);
+
+    res.set('Cache-Control', 'public, max-age=10');
+    res.set('X-Cache', 'MISS');
     res.json({
       success: true,
       stream: result,
@@ -392,6 +403,8 @@ router.post('/:stream_id/withdraw', [
       ]
     });
 
+    await cache.invalidateStream(stream_id);
+
     res.json({
       success: true,
       amount_withdrawn: result.result.toString(),
@@ -405,89 +418,16 @@ router.post('/:stream_id/withdraw', [
 
 /**
  * @swagger
- * /api/streams/{stream_id}/top_up:
- *   post:
- *     summary: Add funds to an existing stream (#267)
- *     description: Employer deposits additional tokens into an active stream
+ * /api/streams/cache-metrics:
+ *   get:
+ *     summary: Cache hit/miss metrics
  *     tags: [Streams]
- *     parameters:
- *       - in: path
- *         name: stream_id
- *         required: true
- *         schema:
- *           $ref: '#/components/schemas/StreamId'
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - employer
- *               - amount
- *             properties:
- *               employer:
- *                 $ref: '#/components/schemas/Address'
- *               amount:
- *                 $ref: '#/components/schemas/Amount'
  *     responses:
  *       200:
- *         description: Stream topped up successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 transaction_hash:
- *                   type: string
- *                   example: "c3d4e5f6..."
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       422:
- *         description: Idempotency error
+ *         description: Cache metrics
  */
-router.post('/:stream_id/top_up', idempotencyMiddleware, [
-  param('stream_id').isInt({ min: 1 }).withMessage('Invalid stream ID'),
-  body('employer').isString().matches(/^G[A-Z0-9]{55}$/).withMessage('Invalid employer address'),
-  body('amount').isString().matches(/^[0-9]+$/).withMessage('Invalid amount'),
-], async (req, res, next) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
-    }
-
-    const { stream_id } = req.params;
-    const { employer, amount } = req.body;
-
-    if (!stellarService.validateAddress(employer)) {
-      return res.status(400).json({ error: 'Invalid employer address' });
-    }
-
-    const result = await stellarService.submitContractTransaction({
-      sourceKey: employer,
-      contractId: stellarService.streamContractId,
-      functionName: 'top_up',
-      args: [
-        new stellarService.rpc.Address(employer),
-        BigInt(stream_id),
-        BigInt(amount)
-      ]
-    });
-
-    res.json({
-      success: true,
-      transaction_hash: result.hash,
-    });
-
-  } catch (error) {
-    next(error);
-  }
+router.get('/cache-metrics', (req, res) => {
+  res.json({ success: true, cache: cache.getMetrics() });
 });
 
 module.exports = router;
