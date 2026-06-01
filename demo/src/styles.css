@@ -1364,3 +1364,11 @@ code {
   background: var(--input-bg);
   color: var(--text);
 }
+
+/* ── Token balance display (#237) ── */
+.token-balance {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+  text-align: right;
+}
