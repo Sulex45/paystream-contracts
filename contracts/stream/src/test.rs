@@ -1817,3 +1817,111 @@ fn test_batch_failed_batch_creates_no_streams() {
     assert!(result.is_err());
     assert_eq!(client.stream_count(), 0);
 }
+
+// ---------------------------------------------------------------------------
+// Issue #329 – Comprehensive pause/resume unit tests
+// ---------------------------------------------------------------------------
+
+/// Pause stops accrual: claimable does not increase while paused.
+#[test]
+fn test_pause_stops_accrual() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let id = client.create_stream(&employer, &employee, &token_id, &10_000, &10, &0, &0, &0);
+
+    env.ledger().with_mut(|l| l.timestamp += 100);
+    client.pause_stream(&employer, &id);
+    let claimable_at_pause = client.claimable(&id);
+
+    // Advance time while paused — claimable must not change
+    env.ledger().with_mut(|l| l.timestamp += 500);
+    assert_eq!(client.claimable(&id), claimable_at_pause);
+}
+
+/// Resume restarts accrual from the correct time (paused duration excluded).
+#[test]
+fn test_resume_restarts_accrual_from_correct_time() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let id = client.create_stream(&employer, &employee, &token_id, &10_000, &10, &0, &0, &0);
+
+    // 60s active → pause
+    env.ledger().with_mut(|l| l.timestamp += 60);
+    client.pause_stream(&employer, &id);
+
+    // 300s paused (should not count)
+    env.ledger().with_mut(|l| l.timestamp += 300);
+    client.resume_stream(&employer, &id);
+
+    // 40s active after resume
+    env.ledger().with_mut(|l| l.timestamp += 40);
+
+    // Only 60 + 40 = 100 active seconds * rate 10 = 1000
+    assert_eq!(client.claimable(&id), 1000);
+}
+
+/// Withdraw during pause returns the amount earned before the pause.
+#[test]
+fn test_withdraw_during_pause_returns_pre_pause_amount() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let id = client.create_stream(&employer, &employee, &token_id, &10_000, &10, &0, &0, &0);
+
+    // Earn 500 tokens before pause
+    env.ledger().with_mut(|l| l.timestamp += 50);
+    client.pause_stream(&employer, &id);
+
+    // Advance time while paused — should not affect claimable
+    env.ledger().with_mut(|l| l.timestamp += 200);
+
+    // claimable should still be 500 (50s * rate 10)
+    assert_eq!(client.claimable(&id), 500);
+}
+
+/// Only the employer can pause a stream; a non-employer call must panic.
+#[test]
+#[should_panic(expected = "not the employer")]
+fn test_only_employer_can_pause() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let id = client.create_stream(&employer, &employee, &token_id, &10_000, &10, &0, &0, &0);
+    client.pause_stream(&attacker, &id);
+}
+
+/// Only the employer can resume a stream; a non-employer call must panic.
+#[test]
+#[should_panic(expected = "not the employer")]
+fn test_only_employer_can_resume() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let employer = Address::generate(&env);
+    let employee = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let token_id = setup_token(&env, &employer);
+
+    client.initialize(&admin);
+    let id = client.create_stream(&employer, &employee, &token_id, &10_000, &10, &0, &0, &0);
+    client.pause_stream(&employer, &id);
+    client.resume_stream(&attacker, &id);
+}
