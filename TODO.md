@@ -1,11 +1,24 @@
-# TODO — documentation + process updates
+# TODO - Python PayStream SDK
 
-- [x] Inspect existing frontend integration guide (`docs/integration/frontend.md`).
-- [x] Inspect existing changelog (`CHANGELOG.md`) and release tooling (`cliff.toml`).
-- [x] Add ADR: CDN/static assets delivery strategy for frontend (`docs/adr/0006-cdn-for-frontend-static-assets.md`).
-- [x] Add ADR: release notes + CHANGELOG process (`docs/adr/0007-release-notes-and-changelog-process.md`).
-- [x] Update ADR index (`docs/adr/README.md`).
-- [x] Create release process docs (`docs/release/release-notes-process.md`, `docs/release/README.md`).
-- [x] Expand frontend integration guide with backend integration expectations + CDN delivery guidance (`docs/integration/frontend.md`).
-- [x] Add “release notes process” section to `CHANGELOG.md`.
+- [ ] Create Python SDK package scaffold under `python-sdk/`
+  - [ ] Add `python-sdk/pyproject.toml`
+  - [ ] Add `python-sdk/README.md`
+  - [ ] Add `python-sdk/src/paystream_sdk/__init__.py`
+- [x] Implement core SDK module
+  - [x] `client.py` with `PayStreamClient` supporting read-only + tx-building methods
+  - [x] `types.py` with `StreamStatus`, `Stream`, etc.
+  - [x] `utils.py` with SCVal/xdr conversion helpers and polling
+
+- [ ] Provide transaction submission helper(s)
+  - [x] Implement `submit_transaction(signed_xdr)` (or equivalent) in client
+
+- [ ] Add/adjust Python examples
+  - [x] Update `examples/python/stream.py` to use the SDK
+  - [x] Or add `examples/python/sdk_example.py`
+
+- [ ] Sanity checks
+  - [x] Python import test for `paystream_sdk`
+- [x] Final run instructions in README
+
+
 
